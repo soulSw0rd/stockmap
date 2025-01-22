@@ -175,6 +175,9 @@ class StockAnalysisPage(UIComponent):
             
             st.dataframe(display_metrics)
             
+			#Afficher les résultats
+            StockMetricsTable(metrics_df).render()
+			
             # Graphiques d'analyse
             col1, col2 = st.columns(2)
             
@@ -268,7 +271,7 @@ class StockAnalysisPage(UIComponent):
             event = Event(**event_data)
             if self.event_manager.add_event(event):
                 st.success("Événement ajouté avec succès!")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("Erreur lors de l'ajout de l'événement")
         except Exception as e:
@@ -279,7 +282,7 @@ class StockAnalysisPage(UIComponent):
         try:
             self.event_manager.events.clear()
             st.success("Événements supprimés avec succès!")
-            st.experimental_rerun()
+            st.rerun()
         except Exception as e:
             st.error(f"Erreur lors de la suppression: {str(e)}")
 
@@ -327,29 +330,30 @@ class MapPage(UIComponent):
         filtered_df = self.analyzer.df[mask]
         
         # Agrégation par pays
-        country_stats = filtered_df.groupby('country').agg({
+        country_orders = filtered_df.groupby('country').agg({
             'invoice_no': 'count',
             'quantity': 'sum',
             'unit_price': lambda x: (x * filtered_df.loc[x.index, 'quantity']).sum()
         }).reset_index()
         
         # Calcul des pourcentages
-        total_orders = country_stats['invoice_no'].sum()
-        country_stats['orders_percentage'] = (
-            country_stats['invoice_no'] / total_orders * 100
+        total_orders = country_orders['invoice_no'].sum()
+        total_quantity = country_orders['quantity'].sum()
+        country_orders['orders_percentage'] = (
+            country_orders['invoice_no'] / total_orders * 100
         ).round(2)
         
         # Création de la carte
         fig = px.choropleth(
-            country_stats,
+            country_orders,
             locations='country',
             locationmode='country names',
             color='orders_percentage',
             hover_data={
                 'country': True,
                 'orders_percentage': ':.2f',
-                'invoice_no': ':.0f',
-                'quantity': ':.0f',
+                'invoice_no': True,
+                'quantity': True,
                 'unit_price': ':.2f'
             },
             color_continuous_scale='RdYlBu_r',
@@ -371,4 +375,4 @@ class MapPage(UIComponent):
         
         # Tableaux des statistiques
         st.subheader("Statistiques par Pays")
-        st.dataframe(country_stats.sort_values('orders_percentage', ascending=False))
+        st.dataframe(country_orders.sort_values('orders_percentage', ascending=False))
