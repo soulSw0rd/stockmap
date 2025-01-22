@@ -173,6 +173,20 @@ class PredictionEngine:
         except:
             return 1.0
 
+    def _determine_pattern_type(self, growth_rate: float, 
+                              seasonality: dict, volatility: float) -> str:
+        """Détermine le type de pattern du produit"""
+        try:
+            if volatility > 0.5:
+                return 'volatile'
+            if abs(growth_rate) > 0.2:
+                return 'strong_growth' if growth_rate > 0 else 'declining'
+            seasonal_variation = max(seasonality.values()) - min(seasonality.values())
+            if seasonal_variation > 0.5:
+                return 'seasonal'
+            return 'stable'
+        except:
+            return 'stable'
     def _calculate_base_trend(self, data: pd.DataFrame) -> float:
         """Calcule la tendance de base des ventes"""
         try:
@@ -189,6 +203,69 @@ class PredictionEngine:
         except:
             return 0.0
 
+    def _calculate_base_prediction(self, base_trend: float, analysis: dict, 
+                                 months_ahead: int, month: int) -> float:
+        """Calcule la prédiction de base pour un mois donné"""
+        growth_factor = (1 + analysis['growth_rate']) ** (months_ahead/12)
+        seasonal_factor = analysis['seasonality'].get(month, 1.0)
+        return float(base_trend * growth_factor * seasonal_factor)
+
+    def _calculate_event_impact(self, date: datetime, location: str, 
+                              base_prediction: float) -> float:
+        """Calcule l'impact des événements sur la prédiction"""
+        impact = self.event_manager.calculate_impact_factor(date, location)
+        
+        # Limiter l'impact maximum
+        max_impact = self.knowledge_base['event_impacts']['warehouse']['max_capacity_factor']
+        min_impact = 0.5  # Limite inférieure à -50%
+        
+        return float(np.clip(impact, min_impact, max_impact))
+
+    def _calculate_prediction_uncertainty(self, analysis: dict, months_ahead: int, 
+                                       date: datetime) -> float:
+        """Calcule l'incertitude de la prédiction"""
+        try:
+            # Incertitude de base basée sur le pattern
+            base_uncertainty = self.knowledge_base['growth_patterns'][
+                analysis['pattern_type']
+            ]['uncertainty_factor']
+            
+            # Facteur temporel
+            time_factor = np.log1p(months_ahead) / 10
+            
+            # Impact des événements sur l'incertitude
+            events = self.event_manager.get_events_for_period(date, date)
+            event_uncertainty = 1.0
+            for event in events:
+                if event.event_type == 'warehouse':
+                    event_uncertainty *= self.knowledge_base['event_impacts']['warehouse']['uncertainty_reduction']
+                else:
+                    event_uncertainty *= self.knowledge_base['event_impacts']['marketing']['uncertainty_increase']
+            
+            # Calculer l'incertitude finale
+            final_uncertainty = base_uncertainty * (1 + time_factor) * event_uncertainty
+            
+            return float(np.clip(final_uncertainty, 0.05, 0.95))
+        except:
+            return 0.5
+
+    def _calculate_overall_uncertainty(self, analysis: dict) -> float:
+        """Calcule l'incertitude globale des prédictions"""
+        try:
+            pattern_uncertainty = {
+                'stable': 0.2,
+                'seasonal': 0.3,
+                'strong_growth': 0.4,
+                'declining': 0.4,
+                'volatile': 0.6
+            }
+            
+            base_uncertainty = pattern_uncertainty.get(analysis['pattern_type'], 0.5)
+            volatility_factor = analysis['volatility'] * 0.3
+            
+            return float(min(0.95, base_uncertainty + volatility_factor))
+        except:
+            return 0.5
     def _get_default_pattern(self) -> dict:
         """Retourne un pattern par défaut"""
         return {
